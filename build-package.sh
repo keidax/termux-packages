@@ -629,6 +629,17 @@ termux_step_setup_toolchain() {
 			done
 		done
 
+		# Avoid incompatibility between -r and -pie options
+		local linker
+		for linker in ld{,.bfd,.gold}; do
+			local FILE_TO_REPLACE=$_TERMUX_TOOLCHAIN_TMPDIR/bin/${TERMUX_HOST_PLATFORM}-$linker
+			if [ ! -f $FILE_TO_REPLACE ]; then
+				termux_error_exit "No toolchain file to override: $FILE_TO_REPLACE"
+			fi
+			cp "$TERMUX_SCRIPTDIR/scripts/ld-pie-wrapper" $FILE_TO_REPLACE
+			sed -i "s#LINKER#../${TERMUX_HOST_PLATFORM}/bin/${linker}#" $FILE_TO_REPLACE
+		done
+
 		if [ "$TERMUX_ARCH" = "aarch64" ]; then
 			# Use gold by default to work around https://github.com/android-ndk/ndk/issues/148
 			cp $_TERMUX_TOOLCHAIN_TMPDIR/bin/aarch64-linux-android-ld.gold \

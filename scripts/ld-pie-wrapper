@@ -1,0 +1,21 @@
+#!/bin/bash
+
+found_pie=0
+found_r=0
+
+for opt; do
+	case "$opt" in
+	-r) found_r=1 ;;
+	-pie) found_pie=1 ;;
+	esac
+done
+
+arguments=($@)
+
+if (( found_pie )) && (( found_r )) ; then
+    for i in $(seq 0 $((${#arguments[@]} - 1))); do
+        [[ ${arguments[$i]} == -pie ]] && unset "arguments[$i]"
+    done
+fi
+
+"$(dirname "$0")/LINKER" "${arguments[@]}"
