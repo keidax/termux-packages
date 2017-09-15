@@ -1,0 +1,11 @@
+--- ../ghc-8.2.1/libffi/ghc.mk	2017-09-15 02:03:11.133236740 +0000
++++ ./libffi/ghc.mk	2017-09-15 02:03:09.106569733 +0000
+@@ -53,6 +53,8 @@
+ 	$(call removeTrees,$(LIBFFI_DIR) libffi/build)
+ 	cat libffi-tarballs/libffi*.tar.gz | $(GZIP_CMD) -d | { cd libffi && $(TAR_CMD) -xf - ; }
+ 	mv libffi/libffi-* libffi/build
++	# Change this instruction to a form LLVM will recognize
++	sed -i "s/stmeqia/stmiaeq/g" libffi/build/src/arm/sysv.S
+ 
+ # update config.guess/config.sub
+ 	$(CP) "$(TOP)/config.guess" libffi/build/config.guess

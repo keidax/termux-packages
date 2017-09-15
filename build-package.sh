@@ -88,6 +88,91 @@ termux_setup_golang() {
 	( cd "$TERMUX_COMMON_CACHEDIR"; tar xf "$TERMUX_BUILDGO_TAR"; mv go "$TERMUX_BUILDGO_FOLDER"; rm "$TERMUX_BUILDGO_TAR" )
 }
 
+# Utility function to set up a ghc toolchain
+termux_setup_ghc() {
+	# Return to the dir we came from
+	local _TERMUX_INIT_DIR
+	_TERMUX_INIT_DIR=$(pwd)
+
+	local TERMUX_GHC_VERSION=8.2.1
+	local TERMUX_GHC_FOLDER="${TERMUX_TOPDIR}/_lib/ghc-${TERMUX_GHC_VERSION}-${TERMUX_ARCH}"
+
+	if [ ! -d "$TERMUX_GHC_FOLDER" ]; then
+		# We need the ncurses libs
+		cd "$TERMUX_SCRIPTDIR"
+		./build-package.sh -a "$TERMUX_ARCH" ncurses
+
+		local TERMUX_GHC_TARNAME=ghc-${TERMUX_GHC_VERSION}-src.tar.xz
+		local TERMUX_GHC_TAR="${TERMUX_COMMON_CACHEDIR}/${TERMUX_GHC_TARNAME}"
+		local TERMUX_GHC_SRCDIR="${TERMUX_COMMON_CACHEDIR}/ghc-${TERMUX_GHC_VERSION}"
+		rm -Rf "$TERMUX_GHC_SRCDIR" # We want to build from a clean src
+		termux_download \
+			"https://downloads.haskell.org/~ghc/${TERMUX_GHC_VERSION}/$TERMUX_GHC_TARNAME" \
+			"$TERMUX_GHC_TAR" \
+			cfc2d496708dacea3ea7dde4c6a4b921b97a7f550ee2acea44cfa535840593f0
+
+		cd "$TERMUX_COMMON_CACHEDIR"
+		tar xf "$TERMUX_GHC_TAR"
+		if [ ! -d "$TERMUX_GHC_SRCDIR" ]; then
+			termux_error_exit "Failed to set up GHC source directory $TERMUX_GHC_SRCDIR"
+		fi
+		cd "$TERMUX_GHC_SRCDIR"
+
+		# https://medium.com/@zw3rk/a-haskell-cross-compiler-for-raspberry-pi-ddd9d41ced94
+
+		# apply patches
+		for patch in "$TERMUX_SCRIPTDIR"/disabled-packages/ghc/*.patch; do
+			test -f "$patch" && sed "s%\@TERMUX_PREFIX\@%${TERMUX_PREFIX}%g" "$patch" | \
+				sed "s%\@TERMUX_HOME\@%${TERMUX_ANDROID_HOME}%g" | \
+				patch --silent -p1
+		done
+
+		local LDFLAGS="$LDFLAGS"
+		export LDFLAGS+=" -L${TERMUX_STANDALONE_TOOLCHAIN}/${TERMUX_HOST_PLATFORM}/lib -landroid-support"
+		# Clang doesn't like the -Oz flag
+		local CFLAGS="${CFLAGS/-Oz}"
+		# Some GNUC features needed
+		export CFLAGS+=" -std=gnu99 -isystem ${TERMUX_PREFIX}/include/libandroid-support -I${TERMUX_PREFIX}/include"
+
+		# Create a mk/build.mk and set the BuildFlavour to quick-cross
+		cat <<-EOF > mk/build.mk
+		# Skip documentation
+		HADDOCK_DOCS = NO
+		BUILD_SPHINX_HTML = NO
+		BUILD_SPHINX_PDF = NO
+		# Cross compiling only
+		BuildFlavour = quick-cross
+		Stage1Only = YES
+		# Avoid "Can't use -fPIC or -dynamic on this platform":
+		DYNAMIC_GHC_PROGRAMS = NO
+		# Just vanilla lib builds
+		GhcLibWays = v
+		# Skip GMP build for now
+		INTEGER_LIBRARY = integer-simple
+		# These libraries need to know about our iconv support
+		libraries/base_LD_OPTS += $LDFLAGS
+		libraries/terminfo_dist-install_LD_OPTS += $LDFLAGS
+		CONF_LD_LINKER_OPTS_STAGE1 += $LDFLAGS
+		CONF_CC_OPTS_STAGE1 += $CFLAGS
+		# Use the right strip
+		STRIP_CMD = ${TERMUX_HOST_PLATFORM}-strip
+		# Needed on arm to select right linker
+		CONF_HC_OPTS_STAGE1 += -pgml=${TERMUX_HOST_PLATFORM}-gcc
+		EOF
+
+		./configure "--target=${TERMUX_HOST_PLATFORM}" \
+			"--prefix=${TERMUX_GHC_FOLDER}"
+
+		# This will take a while
+		make -j "$TERMUX_MAKE_PROCESSES"
+		make install
+	fi
+
+	export TERMUX_CABAL_ARGS=" --with-compiler=${TERMUX_GHC_FOLDER}/bin/${TERMUX_HOST_PLATFORM}-ghc"
+
+	cd "$_TERMUX_INIT_DIR"
+}
+
 # Utility function for cmake-built packages to setup a current ninja.
 termux_setup_ninja() {
 	local NINJA_VERSION=1.7.2
